@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: DB Plugin Abstraction
-Version: 1.0
+Version: 2.0
 Description: A plugin that implements the database abstraction layer stuff with the same pet data
 Author: Jorie Sieck
 Author URI: https://my.thinkeracademy.com
@@ -13,6 +13,34 @@ $db_version = '1.0';
 global $table_postfix;
 $table_postfix = 'catalogue_pets';
 
+function cp_randomize_data() {
+    $names = array('Unicorn', 'Pegasus', 'Pony','Asian dragon','Medieval dragon','Lion','Gryphon');
+    $types = array('Horse','Horse','Horse','Dragon','Dragon','Cat','Cat');
+    $descriptions = array('Spiral horn centered in forehead','Flying; wings sprouting from back',
+        'Very small; half the size of standard horse','Serpentine body','Lizard-like body','Large; maned',
+        'Lion body; eagle head; wings');
+    $prices = array(10000,15000,500,30000,30000,2000,25000);
+
+    $used_js = array();
+    $all_data = array();
+    for($i=0;$i<sizeof($names);$i++) {
+        $j = rand(0,sizeof($names)-1);
+        while(in_array($j,$used_js)) {
+            $j = rand(0,sizeof($names)-1);
+        }
+        $array_to_insert = array(
+            'trial' => $i+1,
+            'name' => $names[$j],
+            'type' => $types[$j],
+            'description' => $descriptions[$j],
+            'price' => $prices[$j],
+        );
+        array_push($all_data,$array_to_insert);
+        array_push($used_js,$j);
+    }
+    return $all_data;
+}
+
 // Genesis activation hook - if statement in function has it run only on a given page
 add_action('genesis_before_content','cp_save_data');
 /*
@@ -21,28 +49,10 @@ add_action('genesis_before_content','cp_save_data');
 function cp_save_data() {
     $page_id = 30;
     if(is_page($page_id)) {
-        $names = array('Unicorn', 'Pegasus', 'Pony','Asian dragon','Medieval dragon','Lion','Gryphon');
-        $types = array('Horse','Horse','Horse','Dragon','Dragon','Cat','Cat');
-        $descriptions = array('Spiral horn centered in forehead','Flying; wings sprouting from back',
-            'Very small; half the size of standard horse','Serpentine body','Lizard-like body','Large; maned',
-            'Lion body; eagle head; wings');
-        $prices = array(10000,15000,500,30000,30000,2000,25000);
-
-        $used_js = array();
         $db = new cp_db;
-        for($i=0;$i<sizeof($names);$i++) {
-            $j = rand(0,sizeof($names)-1);
-            while(in_array($j,$used_js)) {
-                $j = rand(0,sizeof($names)-1);
-            }
-            $array_to_insert = array(
-                'name' => $names[$j],
-                'type' => $types[$j],
-                'description' => $descriptions[$j],
-                'price' => $prices[$j],
-            );
-            $db->insert($array_to_insert);
-            array_push($used_js,$j);
+        $all_data = cp_randomize_data();
+        for($i=0;$i<sizeof($all_data);$i++) {
+            $db->insert($all_data[$i]);
         }
     }
 }
@@ -64,6 +74,7 @@ function create_table() {
 
     $sql = "CREATE TABLE $table_name (
         id mediumint(9) UNSIGNED NOT NULL AUTO_INCREMENT,
+        trial smallint(7) UNSIGNED NOT NULL,
 		name tinytext NOT NULL,
         type tinytext NOT NULL,
         description longtext NOT NULL,
@@ -104,7 +115,7 @@ class cp_db {
 
     // Public methods
     /*
-     * Returns the row with the given value
+     * Returns the row with the given key
      */
     static function get($value) {
         global $wpdb;
@@ -142,7 +153,7 @@ class cp_db {
     static function fetch($value) {
         global $wpdb;
         $value = intval($value);
-        $sql   = 'SELECT * FROM ' . self::_table() . " WHERE 'id' = '{$value}'";
+        $sql   = "SELECT * FROM " . self::_table() . " WHERE id = {$value}";
         return $wpdb->get_results( $sql );
     }
 
@@ -151,7 +162,8 @@ class cp_db {
      */
     public function get_columns() {
         return array(
-            'ID' => '$d',
+            'id' => '$d',
+            'trial' => '%d',
             'name' => '%s',
             'type' => '%s',
             'description' => '%s',
@@ -172,17 +184,21 @@ class cp_db {
             'offset' => 0,
             'order_by' => 'name',
             'order' => 'DESC',
-            'number' => 1,
+            'number' => PHP_INT_MAX,
         );
         $args = wp_parse_args($args,$defaults);
         $where = '';
         if(!empty($args['name'])) {
             if(is_array($args['name'])) {
-                $names = implode(',',$args['name']);
+                $where .= " name IN ('{$args['name'][0]}'";
+                for($i=1;$i<sizeof($args['name']);$i++) {
+                    $where .= ", '{$args['name'][$i]}'";
+                }
+                $where .= ")";
             } else {
                 $names = $args['name'];
+                $where .= " name = '{$names}'";
             }
-            $where .= "WHERE 'name' IN({$names})";
         }
         if(!empty($args['type'])) {
             if(empty($where)) {
@@ -191,11 +207,15 @@ class cp_db {
                 $where .= " AND";
             }
             if(is_array($args['type'])) {
-                $types = implode(',',$args['type']);
+                $where .= " type IN ('{$args['type'][0]}'";
+                for($i=1;$i<sizeof($args['type']);$i++) {
+                    $where .= ", '{$args['type'][$i]}'";
+                }
+                $where .= ")";
             } else {
                 $types = $args['type'];
+                $where .= " type = '{$types}'";
             }
-            $where .= " 'type' IN({$types})";
         }
         if(!empty($args['price'])) {
             if(empty($where)) {
@@ -204,11 +224,15 @@ class cp_db {
                 $where .= " AND";
             }
             if(is_array($args['price'])) {
-                $prices = implode(',',$args['price']);
+                $where .= " price IN ('{$args['price'][0]}'";
+                for($i=1;$i<sizeof($args['price']);$i++) {
+                    $where .= ", '{$args['price'][$i]}'";
+                }
+                $where .= ")";
             } else {
                 $prices = $args['price'];
+                $where .= " price = '{$prices}'";
             }
-            $where .= " 'price' IN({$prices})";
         }
 
         $args['order_by'] = ! array_key_exists($args['order_by'],$this->get_columns()) ? static::$primary_key :
@@ -224,8 +248,8 @@ class cp_db {
                     "{$where};"));
             } else {
                 $results = $wpdb->get_results($wpdb->prepare(
-                    "SELECT * FROM " . self::_table() . " {$where} ORDER BY {$args['order_by']} {$args['order']}
-                    LIMIT %d,%d;", absint($args['offset']), absint($args['number'])
+                    "SELECT * FROM " . self::_table() . " {$where} ORDER BY %s %s LIMIT %d,%d;",
+                    $args['order_by'], $args['order'], absint($args['offset']), absint($args['number'])
                 ));
             }
         }
